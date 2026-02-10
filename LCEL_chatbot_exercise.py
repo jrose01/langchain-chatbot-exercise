@@ -1,9 +1,11 @@
-# import necessary libraries and modules
+from __future__ import annotations
+
 import os
 from typing import List, Dict, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 
 
@@ -22,21 +24,13 @@ def load_openai_api_key(openai_api_key):
 
 load_openai_api_key(openai_api_key)
 
-# Instantiate the ChatOpenAI model
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=openai_api_key)
 
-# =========================
-# 2) Config (instructions + examples)
-# =========================
-
-INSTRUCTIONS = """You are a math assistant who focuses on mathematical calculations and 
-numerical questions. Respond in markdown format and provide clear, concise answers to math-related questions.
-If a question is not related to math, politely inform the user that you can only assist 
-with math-related queries. Always provide the final answer at the end of your response."""
-
-# Examples are instructions for how to behave
-# Providing examples helps the model understand the desired format and style of responses
-# Incorrect, nonsensical, or non-representative examples can mislead the model & degrade chatbot performance
+# System Prompt (instructions) + Examples (few-shot prompting) + ChatBot class implementation
+INSTRUCTIONS = """You are a math assistant who focuses on mathematical calculations and numerical 
+questions. Respond in markdown format and provide clear, concise answers to math-related questions.
+If a question is not related to math, politely inform the user that you can only assist
+with math-related queries. Always provide the final answer at the end of your response.
+"""
 
 DEFAULT_EXAMPLES: List[Dict[str, str]] = [
     {"input": "What is 2 + 2?", "output": "The answer is 4."},
@@ -48,12 +42,13 @@ DEFAULT_EXAMPLES: List[Dict[str, str]] = [
 ]
 
 
-# =========================
-# 3) ChatBot class
-# =========================
+class ChatBotLCEL:
+    """
+    Few-shot chatbot implemented as an LCEL chain:
+        chain = prompt | llm | StrOutputParser()
 
+    """
 
-class ChatBot:
     def __init__(
         self,
         name: str,
@@ -76,35 +71,45 @@ class ChatBot:
                 raise ValueError(
                     f"Example #{i} must contain keys {required_keys}. Got: {list(ex.keys())}"
                 )
-
         self.examples = examples
 
-        self.llm = ChatOpenAI(model=self.model, temperature=self.temperature)
-
-        example_prompt = ChatPromptTemplate.from_messages(
+        # Build the prompt pieces once
+        self._example_prompt = ChatPromptTemplate.from_messages(
             [("human", "{input}"), ("ai", "{output}")]
         )
-        few_shot = FewShotChatMessagePromptTemplate(
-            example_prompt=example_prompt,
+        self._few_shot = FewShotChatMessagePromptTemplate(
+            example_prompt=self._example_prompt,
             examples=self.examples,
         )
-
-        self.prompt = ChatPromptTemplate.from_messages(
+        self._prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", self.instructions),
-                few_shot,
+                self._few_shot,
                 ("human", "{user_input}"),
             ]
         )
 
-    def invoke(self, user_input: str) -> str:
-        messages = self.prompt.format_messages(user_input=user_input)
-        response = self.llm.invoke(messages)
-        return getattr(response, "content", str(response))
+        # Base LLM + base chain
+        self._llm = ChatOpenAI(model=self.model, temperature=self.temperature)
+        self._parser = StrOutputParser()
+        self._chain = self._prompt | self._llm | self._parser
+
+    def invoke(self, user_input: str, temperature: Optional[float] = None) -> str:
+        """
+        Invoke the LCEL chain.
+        If temperature is provided, use a temporary LLM (and temporary chain)
+        for this call only (keeps the bot's default temperature unchanged).
+        """
+        if temperature is None:
+            return self._chain.invoke({"user_input": user_input})
+
+        temp_llm = ChatOpenAI(model=self.model, temperature=temperature)
+        temp_chain = self._prompt | temp_llm | self._parser
+        return temp_chain.invoke({"user_input": user_input})
 
 
-def build_mathwhiz() -> ChatBot:
-    return ChatBot(
+def build_mathwhiz() -> ChatBotLCEL:
+    return ChatBotLCEL(
         name="MathWhiz",
         instructions=INSTRUCTIONS,
         examples=DEFAULT_EXAMPLES,
@@ -113,25 +118,17 @@ def build_mathwhiz() -> ChatBot:
     )
 
 
-# simple bot to be able to ask questions in the main function without
-# having to re-instantiate the bot every time
+# Interactive-friendly helpers
 bot = build_mathwhiz()
 
 
 def question(prompt: str, temperature: float = 0.0) -> None:
-    temp_bot = ChatBot(
-        name="MathWhiz",
-        instructions=INSTRUCTIONS,
-        examples=DEFAULT_EXAMPLES,
-        model="gpt-4o-mini",
-        temperature=temperature,
-    )
-    print(temp_bot.invoke(prompt))
+    print(bot.invoke(prompt, temperature=temperature))
 
 
 def main() -> None:
-    # Sanity check demo (math-only)
     print(bot.invoke("What is 356 divided by 3?"))
+    print(bot.invoke("Explain the Pythagorean theorem in 2 sentences."))
 
 
 if __name__ == "__main__":

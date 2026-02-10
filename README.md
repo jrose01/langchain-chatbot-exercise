@@ -13,7 +13,7 @@ Create a Workspace for this folder in VS Code and download the .env file located
 
 Create and activate a virtual environment.
 
-Open the chatbot_few_shot_prompting_and_roles_exercise_code.py and follow the instructions
+Open the LCEL_chatbot_example.py and follow the instructions
 
 ### Instructions
 
