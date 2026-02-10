@@ -13,6 +13,10 @@ Create a Workspace for this folder in VS Code and download the .env file located
 
 Create and activate a virtual environment.
 
+Run the requirements.txt file: pip install -r requirements.txt
+
+----------------------------------------------------------------
+
 Open the LCEL_chatbot_example.py and follow the instructions
 
 ### Instructions
